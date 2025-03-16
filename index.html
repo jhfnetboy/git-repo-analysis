@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GitHub仓库分析工具</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css" rel="stylesheet">
+    <style>
+        .loading {
+            display: inline-block;
+            width: 50px;
+            height: 50px;
+            border: 3px solid rgba(59, 130, 246, 0.3);
+            border-radius: 50%;
+            border-top-color: #3b82f6;
+            animation: spin 1s ease-in-out infinite;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        .tech-badge {
+            display: inline-block;
+            padding: 0.25rem 0.5rem;
+            margin: 0.25rem;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            background-color: #e5e7eb;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <div class="container mx-auto px-4 py-8">
+        <h1 class="text-3xl font-bold text-center mb-8">GitHub仓库分析工具</h1>
+        
+        <div class="bg-white rounded-lg shadow-md p-6 mb-8">
+            <form id="analyzeForm" class="flex flex-col md:flex-row gap-4">
+                <input type="text" id="repoUrl" placeholder="输入GitHub仓库URL" 
+                       class="flex-grow px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <button type="submit" class="px-6 py-2 bg-blue-600 text-white font-medium rounded-md hover:bg-blue-700 transition duration-200">
+                    分析仓库
+                </button>
+            </form>
+        </div>
+        
+        <div id="loading" class="hidden flex justify-center items-center my-8">
+            <div class="loading"></div>
+            <p class="ml-4 text-lg text-gray-600">分析中，请稍候...</p>
+        </div>
+        
+        <div id="error" class="hidden bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-8">
+            <p id="errorMessage"></p>
+        </div>
+        
+        <div id="results" class="hidden">
+            <div class="bg-white rounded-lg shadow-md p-6 mb-8">
+                <h2 class="text-2xl font-bold mb-4">仓库信息</h2>
+                <div class="mb-4">
+                    <span class="font-semibold">仓库名称:</span>
+                    <span id="repoName"></span>
+                </div>
+                <div class="mb-4">
+                    <span class="font-semibold">仓库URL:</span>
+                    <a id="repoUrlDisplay" href="#" target="_blank" class="text-blue-600 hover:underline"></a>
+                </div>
+            </div>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div class="bg-white rounded-lg shadow-md p-6">
+                    <h2 class="text-2xl font-bold mb-4">主要技术栈</h2>
+                    <div id="technologies" class="flex flex-wrap"></div>
+                </div>
+                
+                <div class="bg-white rounded-lg shadow-md p-6">
+                    <h2 class="text-2xl font-bold mb-4">架构模式</h2>
+                    <div id="architecturePatterns" class="flex flex-wrap"></div>
+                </div>
+            </div>
+            
+            <div class="bg-white rounded-lg shadow-md p-6 mt-8">
+                <h2 class="text-2xl font-bold mb-4">配置文件分析</h2>
+                <div id="configFiles"></div>
+            </div>
+            
+            <div class="bg-white rounded-lg shadow-md p-6 mt-8">
+                <h2 class="text-2xl font-bold mb-4">项目依赖</h2>
+                <div id="dependencies"></div>
+            </div>
+            
+            <div class="bg-white rounded-lg shadow-md p-6 mt-8">
+                <h2 class="text-2xl font-bold mb-4">目录结构</h2>
+                <pre id="directoryStructure" class="bg-gray-100 p-4 rounded-md overflow-auto"></pre>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        document.getElementById('analyzeForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const repoUrl = document.getElementById('repoUrl').value.trim();
+            if (!repoUrl) {
+                showError('请输入GitHub仓库URL');
+                return;
+            }
+            
+            // 显示加载
+            document.getElementById('loading').classList.remove('hidden');
+            document.getElementById('results').classList.add('hidden');
+            document.getElementById('error').classList.add('hidden');
+            
+            try {
+                const response = await fetch(`/api/analyze?url=${encodeURIComponent(repoUrl)}`);
+                const data = await response.json();
+                
+                if (data.error) {
+                    showError(data.error);
+                    return;
+                }
+                
+                displayResults(data);
+            } catch (error) {
+                showError('分析过程中出错：' + error.message);
+            } finally {
+                document.getElementById('loading').classList.add('hidden');
+            }
+        });
+        
+        function showError(message) {
+            const errorElement = document.getElementById('error');
+            document.getElementById('errorMessage').textContent = message;
+            errorElement.classList.remove('hidden');
+            document.getElementById('loading').classList.add('hidden');
+            document.getElementById('results').classList.add('hidden');
+        }
+        
+        function displayResults(data) {
+            // 显示结果容器
+            document.getElementById('results').classList.remove('hidden');
+            
+            // 基本信息
+            document.getElementById('repoName').textContent = data.repo_name;
+            const repoUrlElement = document.getElementById('repoUrlDisplay');
+            repoUrlElement.textContent = data.repo_url;
+            repoUrlElement.href = data.repo_url;
+            
+            // 技术栈
+            const technologiesElement = document.getElementById('technologies');
+            technologiesElement.innerHTML = '';
+            
+            const sortedTechnologies = Object.entries(data.technologies).sort((a, b) => b[1] - a[1]);
+            for (const [tech, count] of sortedTechnologies.slice(0, 15)) {
+                const techBadge = document.createElement('div');
+                techBadge.className = 'tech-badge';
+                techBadge.textContent = `${tech} (${count})`;
+                techBadge.style.backgroundColor = getRandomLightColor();
+                technologiesElement.appendChild(techBadge);
+            }
+            
+            // 架构模式
+            const architecturePatternsElement = document.getElementById('architecturePatterns');
+            architecturePatternsElement.innerHTML = '';
+            
+            const sortedPatterns = Object.entries(data.architecture_patterns).sort((a, b) => b[1] - a[1]);
+            for (const [pattern, count] of sortedPatterns) {
+                if (count > 0) {
+                    const patternBadge = document.createElement('div');
+                    patternBadge.className = 'tech-badge';
+                    patternBadge.textContent = `${pattern} (${count})`;
+                    patternBadge.style.backgroundColor = getRandomLightColor();
+                    architecturePatternsElement.appendChild(patternBadge);
+                }
+            }
+            
+            // 配置文件
+            const configFilesElement = document.getElementById('configFiles');
+            configFilesElement.innerHTML = '';
+            
+            if (data.config_files && Object.keys(data.config_files).length > 0) {
+                const configList = document.createElement('ul');
+                configList.className = 'list-disc pl-5';
+                
+                for (const [file, tech] of Object.entries(data.config_files)) {
+                    if (file !== 'node_dependencies' && file !== 'python_dependencies') {
+                        const listItem = document.createElement('li');
+                        listItem.textContent = `${file}: ${tech}`;
+                        configList.appendChild(listItem);
+                    }
+                }
+                
+                configFilesElement.appendChild(configList);
+            } else {
+                configFilesElement.textContent = '未发现配置文件';
+            }
+            
+            // 依赖项
+            const dependenciesElement = document.getElementById('dependencies');
+            dependenciesElement.innerHTML = '';
+            
+            // Additional dependency handling code here
+        }
+    </script>
+</body>
+</html>

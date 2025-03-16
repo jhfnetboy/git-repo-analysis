@@ -1,0 +1,4 @@
+# 必要的Python依赖
+GitPython==3.1.40
+matplotlib
+networkx
