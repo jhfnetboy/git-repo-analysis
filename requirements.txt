@@ -1,4 +1,4 @@
 # 必要的Python依赖
-GitPython==3.1.40
-matplotlib
-networkx
+tqdm>=4.64.0
+requests>=2.28.1
+gitpython>=3.1.30

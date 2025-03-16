@@ -1,0 +1,106 @@
+{
+  "repo_url": "https://github.com/jhfnetboy/git-repo-analysis",
+  "repo_name": "git-repo-analysis",
+  "file_extensions": {
+    ".py": 3,
+    ".html": 3,
+    ".txt": 1,
+    ".md": 1,
+    ".json": 1
+  },
+  "config_files": {
+    "requirements.txt": "Python"
+  },
+  "technologies": {
+    "python": 144,
+    "javascript": 122,
+    "java": 64,
+    "go": 14,
+    "rust": 20,
+    "c#": 23,
+    "rest api": 33,
+    "angular": 159,
+    "tensorflow": 24,
+    "express": 10,
+    "typescript": 14,
+    "c++": 16,
+    "react": 20,
+    "vue": 22,
+    "svelte": 8,
+    "django": 14,
+    "flask": 9,
+    "spring boot": 8,
+    "laravel": 8,
+    "fastapi": 6,
+    "postgresql": 14,
+    "mysql": 6,
+    "mongodb": 14,
+    "redis": 8,
+    "elasticsearch": 12,
+    "sqlite": 14,
+    "kafka": 6,
+    "rabbitmq": 6,
+    "celery": 11,
+    "docker": 24,
+    "kubernetes": 18,
+    "jenkins": 15,
+    "github actions": 18,
+    "gitlab ci": 12,
+    "travis": 8,
+    "aws": 18,
+    "azure": 14,
+    "gcp": 14,
+    "graphql": 8,
+    "websocket": 23,
+    "oauth": 10,
+    "webpack": 16,
+    "babel": 16,
+    "sass": 10,
+    "less": 12,
+    "pytorch": 10
+  },
+  "architecture_patterns": {
+    "hexagonal": 49,
+    "microservices": 14,
+    "monolith": 8,
+    "serverless": 12,
+    "mvc": 39,
+    "mvvm": 29,
+    "event driven": 18,
+    "domain driven": 10,
+    "clean architecture": 12
+  },
+  "directory_structure": {
+    "github-repo-analyzer-vercel.py": null,
+    "requirements.txt": null,
+    "github-repo-analyzer.py": null,
+    "README.md": null,
+    "vercel-config.json": null,
+    "api": {
+      "analyze.py": null
+    },
+    ".git": {
+      "objects": {
+        "pack": {},
+        "info": {}
+      },
+      "info": {},
+      "logs": {
+        "refs": {
+          "heads": {},
+          "remotes": {
+            "origin": {}
+          }
+        }
+      },
+      "hooks": {},
+      "refs": {
+        "heads": {},
+        "tags": {},
+        "remotes": {
+          "origin": {}
+        }
+      }
+    }
+  }
+}

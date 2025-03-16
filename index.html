@@ -111,24 +111,128 @@
             document.getElementById('results').classList.add('hidden');
             document.getElementById('error').classList.add('hidden');
             
+            console.log(`开始分析仓库: ${repoUrl}`);
+            
             try {
-                const response = await fetch(`/api/analyze?url=${encodeURIComponent(repoUrl)}`);
-                const data = await response.json();
+                const apiUrl = `/api/analyze?url=${encodeURIComponent(repoUrl)}`;
+                console.log(`发送请求到: ${apiUrl}`);
                 
-                if (data.error) {
-                    showError(data.error);
+                // 添加调试信息
+                const debugInfo = document.createElement('div');
+                debugInfo.id = 'debugInfo';
+                debugInfo.style.padding = '10px';
+                debugInfo.style.margin = '10px 0';
+                debugInfo.style.backgroundColor = '#f0f0f0';
+                debugInfo.style.border = '1px solid #ccc';
+                debugInfo.style.borderRadius = '4px';
+                debugInfo.style.fontFamily = 'monospace';
+                debugInfo.style.fontSize = '12px';
+                debugInfo.style.whiteSpace = 'pre-wrap';
+                debugInfo.style.overflow = 'auto';
+                debugInfo.style.maxHeight = '200px';
+                debugInfo.innerHTML = `<strong>调试信息:</strong>\n请求URL: ${apiUrl}\n`;
+                
+                // 在loading元素后插入调试信息
+                const loadingElement = document.getElementById('loading');
+                loadingElement.parentNode.insertBefore(debugInfo, loadingElement.nextSibling);
+                
+                // 设置请求超时
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 60000); // 60秒超时
+                
+                const response = await fetch(apiUrl, {
+                    signal: controller.signal
+                }).catch(error => {
+                    debugInfo.innerHTML += `\n请求错误: ${error.message}\n`;
+                    throw error;
+                });
+                
+                clearTimeout(timeoutId);
+                
+                console.log(`收到响应状态: ${response.status}`);
+                debugInfo.innerHTML += `\n响应状态: ${response.status}\n`;
+                
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    console.error(`API错误 (${response.status}): ${errorText}`);
+                    debugInfo.innerHTML += `\nAPI错误 (${response.status}): ${errorText.substring(0, 500)}...\n`;
+                    showError(`服务器返回错误 (${response.status}): ${errorText}`);
                     return;
                 }
                 
-                displayResults(data);
+                const contentType = response.headers.get('content-type');
+                debugInfo.innerHTML += `\n响应内容类型: ${contentType}\n`;
+                
+                if (!contentType || !contentType.includes('application/json')) {
+                    console.error(`非JSON响应: ${contentType}`);
+                    const text = await response.text();
+                    console.error(`响应内容: ${text.substring(0, 500)}...`);
+                    debugInfo.innerHTML += `\n非JSON响应内容: ${text.substring(0, 500)}...\n`;
+                    showError(`服务器返回了非JSON格式的数据: ${contentType}`);
+                    return;
+                }
+                
+                const responseText = await response.text();
+                debugInfo.innerHTML += `\n响应JSON长度: ${responseText.length}\n`;
+                
+                try {
+                    const data = JSON.parse(responseText);
+                    console.log(`解析JSON成功，数据长度: ${JSON.stringify(data).length}`);
+                    debugInfo.innerHTML += `\nJSON解析成功\n`;
+                    
+                    if (data.error) {
+                        console.error(`API返回错误: ${data.error}`);
+                        debugInfo.innerHTML += `\nAPI返回错误: ${data.error}\n`;
+                        showError(data.error);
+                        return;
+                    }
+                    
+                    displayResults(data);
+                    // 分析成功后隐藏调试信息
+                    debugInfo.style.display = 'none';
+                } catch (jsonError) {
+                    console.error(`JSON解析错误: ${jsonError.message}`);
+                    debugInfo.innerHTML += `\nJSON解析错误: ${jsonError.message}\n`;
+                    debugInfo.innerHTML += `\n响应内容前500字符: ${responseText.substring(0, 500)}...\n`;
+                    showError(`无法解析服务器响应: ${jsonError.message}`);
+                }
             } catch (error) {
-                showError('分析过程中出错：' + error.message);
+                console.error(`分析过程中出错: ${error.message}`, error);
+                
+                // 获取调试信息元素，如果不存在则创建
+                let debugInfo = document.getElementById('debugInfo');
+                if (!debugInfo) {
+                    debugInfo = document.createElement('div');
+                    debugInfo.id = 'debugInfo';
+                    debugInfo.style.padding = '10px';
+                    debugInfo.style.margin = '10px 0';
+                    debugInfo.style.backgroundColor = '#f0f0f0';
+                    debugInfo.style.border = '1px solid #ccc';
+                    debugInfo.style.borderRadius = '4px';
+                    debugInfo.style.fontFamily = 'monospace';
+                    debugInfo.style.fontSize = '12px';
+                    debugInfo.style.whiteSpace = 'pre-wrap';
+                    debugInfo.style.overflow = 'auto';
+                    debugInfo.style.maxHeight = '200px';
+                    
+                    // 在loading元素后插入调试信息
+                    const loadingElement = document.getElementById('loading');
+                    loadingElement.parentNode.insertBefore(debugInfo, loadingElement.nextSibling);
+                }
+                
+                debugInfo.innerHTML += `\n请求错误: ${error.message}\n`;
+                if (error.name === 'AbortError') {
+                    showError(`请求超时，服务器没有响应`);
+                } else {
+                    showError(`分析过程中出错: ${error.message}`);
+                }
             } finally {
                 document.getElementById('loading').classList.add('hidden');
             }
         });
         
         function showError(message) {
+            console.error(`显示错误: ${message}`);
             const errorElement = document.getElementById('error');
             document.getElementById('errorMessage').textContent = message;
             errorElement.classList.remove('hidden');
@@ -137,6 +241,7 @@
         }
         
         function displayResults(data) {
+            console.log('显示分析结果');
             // 显示结果容器
             document.getElementById('results').classList.remove('hidden');
             
@@ -199,7 +304,98 @@
             const dependenciesElement = document.getElementById('dependencies');
             dependenciesElement.innerHTML = '';
             
-            // Additional dependency handling code here
+            // 显示Node.js依赖项
+            if (data.config_files && data.config_files.node_dependencies) {
+                const nodeDepsTitle = document.createElement('h3');
+                nodeDepsTitle.className = 'text-xl font-semibold mb-2';
+                nodeDepsTitle.textContent = 'Node.js依赖项';
+                dependenciesElement.appendChild(nodeDepsTitle);
+                
+                const nodeDepsTable = document.createElement('table');
+                nodeDepsTable.className = 'min-w-full divide-y divide-gray-200 mb-4';
+                
+                // 表头
+                const thead = document.createElement('thead');
+                thead.className = 'bg-gray-50';
+                const headerRow = document.createElement('tr');
+                
+                const nameHeader = document.createElement('th');
+                nameHeader.className = 'px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider';
+                nameHeader.textContent = '包名称';
+                
+                const versionHeader = document.createElement('th');
+                versionHeader.className = 'px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider';
+                versionHeader.textContent = '版本';
+                
+                headerRow.appendChild(nameHeader);
+                headerRow.appendChild(versionHeader);
+                thead.appendChild(headerRow);
+                nodeDepsTable.appendChild(thead);
+                
+                // 表体
+                const tbody = document.createElement('tbody');
+                tbody.className = 'bg-white divide-y divide-gray-200';
+                
+                const deps = data.config_files.node_dependencies;
+                const sortedDeps = Object.keys(deps).sort();
+                
+                for (const dep of sortedDeps) {
+                    const row = document.createElement('tr');
+                    
+                    const nameCell = document.createElement('td');
+                    nameCell.className = 'px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900';
+                    nameCell.textContent = dep;
+                    
+                    const versionCell = document.createElement('td');
+                    versionCell.className = 'px-6 py-4 whitespace-nowrap text-sm text-gray-500';
+                    versionCell.textContent = deps[dep];
+                    
+                    row.appendChild(nameCell);
+                    row.appendChild(versionCell);
+                    tbody.appendChild(row);
+                }
+                
+                nodeDepsTable.appendChild(tbody);
+                dependenciesElement.appendChild(nodeDepsTable);
+            }
+            
+            // 显示Python依赖项
+            if (data.config_files && data.config_files.python_dependencies) {
+                const pythonDepsTitle = document.createElement('h3');
+                pythonDepsTitle.className = 'text-xl font-semibold mb-2';
+                pythonDepsTitle.textContent = 'Python依赖项';
+                dependenciesElement.appendChild(pythonDepsTitle);
+                
+                const pythonDepsList = document.createElement('ul');
+                pythonDepsList.className = 'list-disc pl-5';
+                
+                const deps = data.config_files.python_dependencies;
+                for (const dep of deps) {
+                    const listItem = document.createElement('li');
+                    listItem.textContent = dep;
+                    pythonDepsList.appendChild(listItem);
+                }
+                
+                dependenciesElement.appendChild(pythonDepsList);
+            }
+            
+            // 如果没有依赖项
+            if ((!data.config_files || !data.config_files.node_dependencies) && 
+                (!data.config_files || !data.config_files.python_dependencies)) {
+                dependenciesElement.textContent = '未发现依赖项';
+            }
+            
+            // 目录结构
+            const directoryStructureElement = document.getElementById('directoryStructure');
+            directoryStructureElement.textContent = JSON.stringify(data.directory_structure, null, 2);
+        }
+        
+        // 生成随机浅色
+        function getRandomLightColor() {
+            const hue = Math.floor(Math.random() * 360);
+            const saturation = Math.floor(Math.random() * 30) + 70; // 70-100%
+            const lightness = Math.floor(Math.random() * 15) + 80; // 80-95%
+            return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
         }
     </script>
 </body>

@@ -6,13 +6,12 @@ import logging
 from collections import Counter, defaultdict
 import argparse
 from pathlib import Path
-import matplotlib.pyplot as plt
-import networkx as nx
-from tqdm import tqdm
 import tempfile
 import shutil
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qs, urlparse
+from tqdm import tqdm
+import traceback
 
 # 设置日志
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -98,22 +97,64 @@ ARCHITECTURE_PATTERNS = {
     'hexagonal': ['hexagonal', 'ports and adapters', 'adapter', 'port'],
 }
 
-def clone_repo(repo_url, target_dir=None):
+def clone_repo(repo_url, target_dir):
     """克隆GitHub仓库到本地"""
-    if target_dir is None:
-        repo_name = repo_url.split('/')[-1].replace('.git', '')
-        target_dir = f"./temp_repos/{repo_name}"
+    logger.info(f"准备克隆仓库 {repo_url} 到 {target_dir}")
     
+    # 检查目标目录是否已存在
     if os.path.exists(target_dir):
-        logger.info(f"仓库目录已存在: {target_dir}")
-        return target_dir
+        logger.info(f"目标目录已存在: {target_dir}")
+        # 检查是否是有效的git仓库
+        git_dir = os.path.join(target_dir, ".git")
+        if os.path.exists(git_dir):
+            logger.info(f"目标目录是有效的git仓库: {target_dir}")
+            return target_dir
+        else:
+            logger.warning(f"目标目录存在但不是有效的git仓库，将删除: {target_dir}")
+            try:
+                shutil.rmtree(target_dir)
+                logger.info(f"已删除无效目录: {target_dir}")
+            except Exception as e:
+                logger.error(f"删除无效目录时出错: {e}")
+                return None
     
-    logger.info(f"克隆仓库 {repo_url} 到 {target_dir}")
+    # 确保父目录存在
+    parent_dir = os.path.dirname(target_dir)
+    if not os.path.exists(parent_dir):
+        try:
+            os.makedirs(parent_dir, exist_ok=True)
+            logger.info(f"已创建父目录: {parent_dir}")
+        except Exception as e:
+            logger.error(f"创建父目录时出错: {e}")
+            return None
+    
+    # 执行克隆
+    logger.info(f"开始克隆仓库 {repo_url} 到 {target_dir}")
     try:
-        subprocess.run(['git', 'clone', '--depth=1', repo_url, target_dir], check=True)
-        return target_dir
-    except subprocess.CalledProcessError as e:
-        logger.error(f"克隆仓库失败: {e}")
+        # 使用subprocess克隆
+        result = subprocess.run(
+            ['git', 'clone', '--depth=1', repo_url, target_dir],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False  # 不自动抛出异常
+        )
+        
+        # 检查结果
+        if result.returncode != 0:
+            logger.error(f"克隆失败，返回码: {result.returncode}")
+            logger.error(f"错误输出: {result.stderr}")
+            return None
+        
+        # 验证目录是否存在且包含.git
+        if os.path.exists(target_dir) and os.path.exists(os.path.join(target_dir, ".git")):
+            logger.info(f"克隆成功: {target_dir}")
+            return target_dir
+        else:
+            logger.error(f"克隆似乎成功，但目录不存在或不是有效的git仓库: {target_dir}")
+            return None
+    except Exception as e:
+        logger.error(f"克隆过程中出错: {e}")
         return None
 
 def get_file_extensions(repo_dir):
@@ -210,23 +251,25 @@ def analyze_config_files(repo_dir):
 def analyze_directory_structure(repo_dir):
     """分析目录结构"""
     result = {}
-    try:
-        def _analyze_dir(directory):
+    
+    def _analyze_dir(directory):
+        dir_contents = {}
+        try:
             for item in os.listdir(directory):
                 item_path = os.path.join(directory, item)
                 if os.path.isdir(item_path):
-                    result[item] = _analyze_dir(item_path)
+                    dir_contents[item] = _analyze_dir(item_path)
                 else:
                     # 只添加特定类型的文件
                     if any(item.endswith(ext) for ext in ['.py', '.js', '.java', '.go', '.rs', '.cs', '.php', '.rb', 
                                                          '.md', '.txt', '.json', '.yml', '.yaml']):
-                        result[item] = None
-    except Exception as e:
-        logger.error(f"分析目录结构时出错: {e}")
-        return str(e)
+                        dir_contents[item] = None
+        except Exception as e:
+            logger.error(f"分析目录结构时出错: {e}")
+            return str(e)
+        return dir_contents
     
-    structure = _analyze_dir(repo_dir)
-    return structure
+    return _analyze_dir(repo_dir)
 
 def find_technologies(repo_dir):
     """在代码和配置文件中查找技术关键词"""
@@ -265,55 +308,7 @@ def find_technologies(repo_dir):
                 pass
     
     return technologies
-def analyze_repo(repo_url):
-    """主分析函数，分析给定的GitHub仓库"""
-    # 定义历史文件路径
-    history_file = "clone_history.txt"
 
-    # 检查历史记录
-    if os.path.exists(history_file):
-        with open(history_file, 'r') as f:
-            cloned_repos = f.read().splitlines()
-        if repo_url in cloned_repos:
-            logger.info(f"仓库已存在于历史记录中: {repo_url}")
-            return analyze_existing_repo(repo_url)
-
-    # 创建临时目录
-    temp_dir = tempfile.mkdtemp()
-    repo_dir = os.path.join(temp_dir, "repo")
-
-    try:
-        # 克隆仓库
-        if not clone_repo(repo_url, repo_dir):
-            return {"error": "克隆仓库失败"}
-
-        # 记录克隆的仓库到历史文件
-        with open(history_file, 'a') as f:
-            f.write(repo_url + "\n")
-
-        # 获取仓库名称
-        repo_name = repo_url.split('/')[-1].replace('.git', '')
-
-        # 分析结果
-        result = {
-            "repo_url": repo_url,
-            "repo_name": repo_name,
-            "file_extensions": dict(get_file_extensions(repo_dir)),
-            "config_files": analyze_config_files(repo_dir),
-            "technologies": dict(find_technologies(repo_dir)),
-            "architecture_patterns": dict(find_architecture_patterns(repo_dir)),
-            "directory_structure": analyze_directory_structure(repo_dir)
-        }
-
-        # 清理
-        shutil.rmtree(temp_dir)
-
-        return result
-    except Exception as e:
-        logger.error(f"分析仓库时出错: {e}")
-        # 清理
-        shutil.rmtree(temp_dir)
-        return {"error": str(e)}
 def find_architecture_patterns(repo_dir):
     """查找常见架构模式的迹象"""
     patterns = Counter()
@@ -374,20 +369,30 @@ def find_architecture_patterns(repo_dir):
     
     return patterns
 
-def analyze_repo(repo_url):
-    """主分析函数，分析给定的GitHub仓库"""
-    # 创建临时目录
-    temp_dir = tempfile.mkdtemp()
-    repo_dir = os.path.join(temp_dir, "repo")
+def analyze_existing_repo(repo_url):
+    """分析已经克隆过的仓库"""
+    repo_name = repo_url.split('/')[-1].replace('.git', '')
+    
+    # 尝试多个可能的路径
+    possible_paths = [
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "temp_repos", repo_name),  # 相对于脚本的路径
+        os.path.join("temp_repos", repo_name),  # 相对于当前工作目录的路径
+        f"./temp_repos/{repo_name}",  # 另一种相对路径表示
+        os.path.abspath(f"temp_repos/{repo_name}")  # 绝对路径
+    ]
+    
+    repo_dir = None
+    for path in possible_paths:
+        if os.path.exists(path):
+            repo_dir = path
+            logger.info(f"找到仓库目录: {repo_dir}")
+            break
+    
+    if not repo_dir:
+        logger.error(f"仓库目录不存在，尝试过以下路径: {possible_paths}")
+        return {"error": "仓库目录不存在"}
     
     try:
-        # 克隆仓库
-        if not clone_repo(repo_url, repo_dir):
-            return {"error": "克隆仓库失败"}
-        
-        # 获取仓库名称
-        repo_name = repo_url.split('/')[-1].replace('.git', '')
-        
         # 分析结果
         result = {
             "repo_url": repo_url,
@@ -399,20 +404,129 @@ def analyze_repo(repo_url):
             "directory_structure": analyze_directory_structure(repo_dir)
         }
         
-        # 清理
-        shutil.rmtree(temp_dir)
+        return result
+    except Exception as e:
+        logger.error(f"分析仓库时出错: {e}")
+        return {"error": str(e)}
+
+def analyze_repo(repo_url):
+    """主分析函数，分析给定的GitHub仓库"""
+    # 获取仓库名称
+    repo_name = repo_url.split('/')[-1].replace('.git', '')
+    
+    # 定义临时目录和永久目录
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    base_dir = os.path.dirname(script_dir)  # 项目根目录
+    
+    # 永久存储目录
+    permanent_dir = os.path.join(base_dir, "temp_repos")
+    permanent_repo_dir = os.path.join(permanent_dir, repo_name)
+    
+    # 确保永久目录存在
+    os.makedirs(permanent_dir, exist_ok=True)
+    logger.info(f"永久存储目录: {permanent_dir}")
+    
+    # 检查永久目录中是否已有该仓库
+    if os.path.exists(permanent_repo_dir):
+        logger.info(f"仓库已存在于永久目录中: {permanent_repo_dir}")
+        try:
+            # 尝试使用已有仓库
+            result = {
+                "repo_url": repo_url,
+                "repo_name": repo_name,
+                "file_extensions": dict(get_file_extensions(permanent_repo_dir)),
+                "config_files": analyze_config_files(permanent_repo_dir),
+                "technologies": dict(find_technologies(permanent_repo_dir)),
+                "architecture_patterns": dict(find_architecture_patterns(permanent_repo_dir)),
+                "directory_structure": analyze_directory_structure(permanent_repo_dir)
+            }
+            logger.info(f"使用已有仓库分析成功: {permanent_repo_dir}")
+            return result
+        except Exception as e:
+            logger.warning(f"使用已有仓库分析失败: {e}，将重新克隆")
+            # 如果分析失败，删除已有目录并重新克隆
+            try:
+                shutil.rmtree(permanent_repo_dir)
+                logger.info(f"已删除失效的仓库目录: {permanent_repo_dir}")
+            except Exception as rm_err:
+                logger.warning(f"删除失效目录时出错: {rm_err}")
+    
+    # 创建临时目录
+    temp_dir = tempfile.mkdtemp()
+    logger.info(f"创建临时目录: {temp_dir}")
+    
+    try:
+        # 直接克隆到永久目录
+        logger.info(f"尝试直接克隆到永久目录: {permanent_repo_dir}")
+        if clone_repo(repo_url, permanent_repo_dir):
+            logger.info(f"成功克隆到永久目录: {permanent_repo_dir}")
+            # 分析结果
+            result = {
+                "repo_url": repo_url,
+                "repo_name": repo_name,
+                "file_extensions": dict(get_file_extensions(permanent_repo_dir)),
+                "config_files": analyze_config_files(permanent_repo_dir),
+                "technologies": dict(find_technologies(permanent_repo_dir)),
+                "architecture_patterns": dict(find_architecture_patterns(permanent_repo_dir)),
+                "directory_structure": analyze_directory_structure(permanent_repo_dir)
+            }
+            return result
+        
+        # 如果直接克隆失败，尝试克隆到临时目录
+        logger.info(f"直接克隆失败，尝试克隆到临时目录")
+        temp_repo_dir = os.path.join(temp_dir, "repo")
+        if not clone_repo(repo_url, temp_repo_dir):
+            logger.error(f"克隆到临时目录也失败了")
+            return {"error": "克隆仓库失败"}
+        
+        # 分析结果
+        logger.info(f"使用临时目录进行分析: {temp_repo_dir}")
+        result = {
+            "repo_url": repo_url,
+            "repo_name": repo_name,
+            "file_extensions": dict(get_file_extensions(temp_repo_dir)),
+            "config_files": analyze_config_files(temp_repo_dir),
+            "technologies": dict(find_technologies(temp_repo_dir)),
+            "architecture_patterns": dict(find_architecture_patterns(temp_repo_dir)),
+            "directory_structure": analyze_directory_structure(temp_repo_dir)
+        }
+        
+        # 复制到永久目录
+        try:
+            logger.info(f"尝试将临时目录复制到永久目录: {permanent_repo_dir}")
+            if os.path.exists(permanent_repo_dir):
+                shutil.rmtree(permanent_repo_dir)
+            shutil.copytree(temp_repo_dir, permanent_repo_dir)
+            logger.info(f"成功复制到永久目录: {permanent_repo_dir}")
+        except Exception as e:
+            logger.warning(f"复制到永久目录时出错: {e}")
         
         return result
     except Exception as e:
         logger.error(f"分析仓库时出错: {e}")
-        # 清理
-        shutil.rmtree(temp_dir)
         return {"error": str(e)}
+    finally:
+        # 清理临时目录
+        try:
+            if os.path.exists(temp_dir):
+                shutil.rmtree(temp_dir)
+                logger.info(f"已清理临时目录: {temp_dir}")
+        except Exception as e:
+            logger.warning(f"清理临时目录时出错: {e}")
 
 class handler(BaseHTTPRequestHandler):
     def do_GET(self):
+        # 检查路径是否匹配 /api/analyze
+        if not self.path.startswith('/api/analyze'):
+            self.send_response(404)
+            self.send_header('Content-type', 'text/plain')
+            self.end_headers()
+            self.wfile.write("Not Found".encode())
+            return
+            
         self.send_response(200)
         self.send_header('Content-type', 'application/json')
+        self.send_header('Access-Control-Allow-Origin', '*')  # 允许跨域请求
         self.end_headers()
         
         # 解析URL参数
@@ -433,11 +547,35 @@ class handler(BaseHTTPRequestHandler):
 # 如果直接运行脚本，则提供一个简单的命令行接口
 if __name__ == "__main__":
     import sys
+    import argparse
     
-    if len(sys.argv) < 2:
-        print("用法: python analyze.py <GitHub仓库URL>")
+    parser = argparse.ArgumentParser(description='分析GitHub仓库的技术栈和架构')
+    parser.add_argument('repo_url', help='GitHub仓库URL')
+    parser.add_argument('-o', '--output', help='输出JSON文件路径')
+    parser.add_argument('-v', '--verbose', action='store_true', help='显示详细日志')
+    
+    args = parser.parse_args()
+    
+    if args.verbose:
+        logging.getLogger().setLevel(logging.DEBUG)
+        print(f"分析仓库: {args.repo_url}")
+    
+    try:
+        result = analyze_repo(args.repo_url)
+        
+        # 格式化JSON输出
+        formatted_json = json.dumps(result, ensure_ascii=False, indent=2)
+        
+        # 输出到文件或标准输出
+        if args.output:
+            with open(args.output, 'w', encoding='utf-8') as f:
+                f.write(formatted_json)
+            print(f"分析结果已保存到: {args.output}")
+        else:
+            print(formatted_json)
+            
+        sys.exit(0)
+    except Exception as e:
+        print(f"分析仓库时出错: {str(e)}", file=sys.stderr)
+        traceback.print_exc()
         sys.exit(1)
-    
-    repo_url = sys.argv[1]
-    result = analyze_repo(repo_url)
-    print(json.dumps(result, ensure_ascii=False, indent=2))

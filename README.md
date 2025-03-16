@@ -1,6 +1,7 @@
 # GitHub仓库分析工具
 
 一个简单的工具，可以快速分析GitHub仓库的技术栈和架构。
+v0.1 2025-03-16
 
 ## 功能
 
@@ -10,7 +11,34 @@
 - 显示项目目录结构
 - 分析配置文件和依赖项
 
-## 部署到Vercel
+![](https://raw.githubusercontent.com/jhfnetboy/MarkDownImg/main/img/202503162214564.png)
+
+
+
+## 本地开发
+
+1. 克隆仓库
+   ```bash
+   git clone <仓库URL>
+   cd github-repo-analyzer
+   ```
+
+2. 安装依赖
+   ```bash
+python3 -m venv venv && source venv/bin/activate && pip install -r requirements.txt
+
+   pip install -r requirements.txt
+   ```
+
+3. 运行API服务器
+   ```bash
+   python api/analyze.py <GitHub仓库URL>
+   ```
+
+4. 在浏览器中打开index.html文件
+
+
+## 部署到Vercel(option)
 
 ### 前提条件
 
@@ -30,26 +58,6 @@
 3. 等待部署完成
 
 4. 访问生成的URL，开始使用工具
-
-## 本地开发
-
-1. 克隆仓库
-   ```bash
-   git clone <仓库URL>
-   cd github-repo-analyzer
-   ```
-
-2. 安装依赖
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-3. 运行API服务器
-   ```bash
-   python api/analyze.py <GitHub仓库URL>
-   ```
-
-4. 在浏览器中打开index.html文件
 
 ## 注
 
